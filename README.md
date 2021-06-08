@@ -1,3 +1,10 @@
+# Ros 3D Pose Extraction Extension
+
+The script `rosinterface.py` contains a script similar to `demo.py` only it is integrated with ROS.
+Using a provided aligned depth image along with a color image, this script extracts 3D Pose information by calculation the median depth of all keypoints that belong to a 2D pose detection.
+Next the depth and image coordinates of the keypoints are used in combination with the intrinsic parameters of the camera to publish a 3DBoundingBoxArray message.
+
+# (original README)
 # Real-time 2D Multi-Person Pose Estimation on CPU: Lightweight OpenPose
 
 This repository contains training code for the paper [Real-time 2D Multi-Person Pose Estimation on CPU: Lightweight OpenPose](https://arxiv.org/pdf/1811.12004.pdf). This work heavily optimizes the [OpenPose](https://github.com/CMU-Perceptual-Computing-Lab/openpose) approach to reach real-time inference on CPU with negliable accuracy drop. It detects a skeleton (which consists of keypoints and connections between them) to identify human poses for every person inside the image. The pose may contain up to 18 keypoints: ears, eyes, nose, neck, shoulders, elbows, wrists, hips, knees, and ankles. On COCO 2017 Keypoint Detection validation set this code achives 40% AP for the single scale inference (no flip or any post-processing done). The result can be reproduced using this repository. *This repo significantly overlaps with https://github.com/opencv/openvino_training_extensions, however contains just the necessary code for human pose estimation.*

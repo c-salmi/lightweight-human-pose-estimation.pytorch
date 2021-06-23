@@ -19,7 +19,7 @@ from val import normalize, pad_width
 
 
 class RosReader:
-    def __init__(self, camera=1):
+    def __init__(self, camera=4):
         rospy.init_node("openpose_light")
 
         self.color_img = None
@@ -33,15 +33,19 @@ class RosReader:
 
         # ROS publishers
         # self.pub_persons = rospy.Publisher('/openpose/tracked_persons', TrackedPersons, queue_size=10)
-        self.pub_persons = rospy.Publisher('/openpose/detections', BoundingBoxArray, queue_size=10)
+        self.pub_persons = rospy.Publisher(f'/camera{camera}/openpose/detections', BoundingBoxArray, queue_size=10)
 
         self.listener = tf.TransformListener()
 
     def color_cb(self, msg):
+        self.color_msg = msg
         self.color_img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+        self.color_time = msg.header.stamp
 
     def depth_cb(self, msg):
+        self.depth_msg = msg
         self.depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width, -1)
+        self.depth_time = msg.header.stamp
 
     def info_cb(self, msg):
         self.K = np.array(msg.K).reshape((3, 3))
@@ -100,7 +104,9 @@ def infer_fast(net, img, net_input_height_size, stride, upsample_ratio, cpu,
     stages_output = net(tensor_img)
 
     stage2_heatmaps = stages_output[-2]
+    t1 = time.time()
     heatmaps = np.transpose(stage2_heatmaps.squeeze().cpu().data.numpy(), (1, 2, 0))
+    print(time.time() - t1)
     heatmaps = cv2.resize(heatmaps, (0, 0), fx=upsample_ratio, fy=upsample_ratio, interpolation=cv2.INTER_CUBIC)
 
     stage2_pafs = stages_output[-1]
@@ -122,11 +128,16 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
     delay = 1
     for img, img_depth in image_provider:
         t1 = time.time()
+        # print(f'depth time: {image_provider.depth_time.to_sec()}')
+        # print(f'depth diff time: {rospy.get_time() - image_provider.depth_time.to_sec()}')
+        # print(f'color time: {image_provider.color_time.to_sec()}')
+        # print(f'color diff time: {rospy.get_time() - image_provider.color_time.to_sec()}')
+        # print(f'diff time: {image_provider.depth_time.to_sec() - image_provider.color_time.to_sec()}')
+        # print('\n')
 
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        img_depth = img_depth/10000
-
         orig_img = img.copy()
+        img_depth = img_depth/1000
         heatmaps, pafs, scale, pad = infer_fast(net, img, height_size, stride, upsample_ratio, cpu)
 
         total_keypoints_num = 0
@@ -155,7 +166,6 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
             previous_poses = current_poses
         for pose in current_poses:
             pose.draw(img)
-            pose.draw(img_depth)
         img = cv2.addWeighted(orig_img, 0.6, img, 0.4, 0)
 
         # TrackedPersons
@@ -163,7 +173,10 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
         persons.header.frame_id = 'map'
         for pose in current_poses:
             # Extract median depth value of keypoints
-            avg_depth = np.median([img_depth[pose_keypoint[1], pose_keypoint[0]] for pose_keypoint in pose.keypoints if not all(pose_keypoint == [-1, -1])]) * 10
+            keypoint_depths = [img_depth[pose_keypoint[1], pose_keypoint[0]] for pose_keypoint in pose.keypoints if not all(pose_keypoint == [-1, -1]) and not img_depth[pose_keypoint[1], pose_keypoint[0]] == 0]
+            if len(keypoint_depths) == 0:
+                continue
+            avg_depth = np.median(keypoint_depths)
             point = pose.keypoints[0] if not all(pose.keypoints[0] == [-1, -1]) else pose.keypoints[1]
 
             # 3D conversion
@@ -171,7 +184,7 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
 
             # Create pose
             pose3d = PoseStamped()
-            pose3d.header.frame_id = '/camera1_link'
+            pose3d.header.frame_id = '/camera4_link'
             pose3d.pose.position.x = point3d[0]
             pose3d.pose.position.y = point3d[1]
             pose3d.pose.position.z = point3d[2]
@@ -182,6 +195,7 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
             person = BoundingBox()
             person.header.frame_id = 'map'
             person.pose.position = pose3d_map.pose.position
+            person.pose.position.z -= 0.5
             person.dimensions.x = 0.5
             person.dimensions.y = 0.5
             person.dimensions.z = 1.5
@@ -198,7 +212,7 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
                 cv2.putText(img, 'id: {}'.format(pose.id), (pose.bbox[0], pose.bbox[1] - 16),
                             cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255))
         image_provider.pub_persons.publish(persons)
-        cv2.imshow('Lightweight Human Pose Estimation Python Demo', img_depth)
+        cv2.imshow('Lightweight Human Pose Estimation Python Demo', img)
         key = cv2.waitKey(delay)
         if key == 27:  # esc
             return
@@ -208,7 +222,7 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
             else:
                 delay = 1
 
-        print(1/(time.time() - t1))
+        # print(1/(time.time() - t1))
 
 
 if __name__ == '__main__':
@@ -228,4 +242,4 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.checkpoint_path, map_location='cpu')
     load_state(net, checkpoint)
 
-    run_demo(net, RosReader(camera=1), args.height_size, args.cpu, args.track, args.smooth)
+    run_demo(net, RosReader(camera=4), args.height_size, args.cpu, args.track, args.smooth)

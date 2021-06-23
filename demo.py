@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import cv2
 import numpy as np
@@ -68,7 +69,8 @@ def infer_fast(net, img, net_input_height_size, stride, upsample_ratio, cpu,
     stages_output = net(tensor_img)
 
     stage2_heatmaps = stages_output[-2]
-    heatmaps = np.transpose(stage2_heatmaps.squeeze().cpu().data.numpy(), (1, 2, 0))
+    t = stage2_heatmaps.squeeze().cpu().data.numpy()
+    heatmaps = np.transpose(t, (1, 2, 0))
     heatmaps = cv2.resize(heatmaps, (0, 0), fx=upsample_ratio, fy=upsample_ratio, interpolation=cv2.INTER_CUBIC)
 
     stage2_pafs = stages_output[-1]
@@ -89,6 +91,8 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
     previous_poses = []
     delay = 1
     for img in image_provider:
+        t1 = time.time()
+
         orig_img = img.copy()
         heatmaps, pafs, scale, pad = infer_fast(net, img, height_size, stride, upsample_ratio, cpu)
 
@@ -135,6 +139,7 @@ def run_demo(net, image_provider, height_size, cpu, track, smooth):
             else:
                 delay = 1
 
+        print(1/(time.time() - t1))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
